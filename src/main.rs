@@ -20,20 +20,7 @@ mod fen;
 fn main() {
     //let mut map = HashMap::new();
     let board = fen::build_board(fen::STARTING_FEN);
-    dbg!(board);
-    println!(
-        "{}",
-        eval::eval(&fen::build_board(
-            "rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR w KQkq - 0 1"
-        ))
-    );
-    println!(
-        "{}",
-        eval::eval(&fen::build_board(
-            "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1"
-        ))
-    );
-    //search(&board, 8, &mut map);
+    time_move_generation(&board, 7);
     main_loop();
 }
 
