@@ -41,7 +41,6 @@ pub fn hash_board(board: &Board) -> u64 {
     if board.to_move == Color::Black {
         hash ^= 0x0b2727e5e37fed2d;
     }
-
     hash
 }
 

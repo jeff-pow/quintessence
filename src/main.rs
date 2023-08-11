@@ -5,6 +5,7 @@ mod search;
 mod uci;
 mod zobrist;
 
+use std::collections::HashMap;
 #[allow(unused_imports)]
 use crate::{moves::generate_all_moves, search::time_move_generation};
 use board::Board;
@@ -13,14 +14,18 @@ use pieces::Piece;
 use search::*;
 use std::process::exit;
 use uci::main_loop;
+use crate::eval::eval;
+use crate::zobrist::hash_board;
 
 mod board;
 mod fen;
 
 fn main() {
-    //let mut map = HashMap::new();
+    let mut map = HashMap::new();
     let board = fen::build_board(fen::STARTING_FEN);
-    time_move_generation(&board, 7);
+    hash_board(&board);
+    let searcher = eval(&board);
+    let m = search(&board, 7, &mut map);
     main_loop();
 }
 
