@@ -230,16 +230,11 @@ impl Board {
 
     #[inline(always)]
     fn material_val(&self, c: Color) -> i32 {
-        let q = self.bitboard(c, PieceName::Queen).count_bits();
-        let r = self.bitboard(c, PieceName::Rook).count_bits();
-        let b = self.bitboard(c, PieceName::Bishop).count_bits();
-        let n = self.bitboard(c, PieceName::Knight).count_bits();
-        let p = self.bitboard(c, PieceName::Pawn).count_bits();
-        q * PieceName::Queen.value()
-            + r * PieceName::Rook.value()
-            + b * PieceName::Bishop.value()
-            + n * PieceName::Knight.value()
-            + p * PieceName::Pawn.value()
+        self.bitboard(c, PieceName::Queen).count_bits() * PieceName::Queen.value()
+            + self.bitboard(c, PieceName::Rook).count_bits() * PieceName::Rook.value()
+            + self.bitboard(c, PieceName::Bishop).count_bits() * PieceName::Bishop.value()
+            + self.bitboard(c, PieceName::Knight).count_bits() * PieceName::Knight.value()
+            + self.bitboard(c, PieceName::Pawn).count_bits() * PieceName::Pawn.value()
     }
 
     #[inline(always)]
@@ -335,9 +330,7 @@ impl Board {
                 }
                 Castle::None => (),
             }
-        }
-
-        if let Some(p) = m.promotion() {
+        } else if let Some(p) = m.promotion() {
             self.remove_piece(m.dest_square());
             match p {
                 Promotion::Queen => self.place_piece(PieceName::Queen, self.to_move, m.dest_square()),
@@ -345,10 +338,7 @@ impl Board {
                 Promotion::Bishop => self.place_piece(PieceName::Bishop, self.to_move, m.dest_square()),
                 Promotion::Knight => self.place_piece(PieceName::Knight, self.to_move, m.dest_square()),
             }
-        }
-
-        // Special case if the move is an en_passant
-        if m.is_en_passant() {
+        } else if m.is_en_passant() {
             match self.to_move {
                 Color::White => {
                     self.remove_piece(m.dest_square().shift(South));

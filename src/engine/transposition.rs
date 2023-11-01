@@ -10,19 +10,6 @@ pub struct TableEntry {
     best_move: ShortMove,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct ShortMove(u16);
-
-impl ShortMove {
-    pub fn from_move(m: Move) -> Self {
-        Self(m.as_u16())
-    }
-
-    pub fn as_u32(&self) -> u32 {
-        self.0 as u32
-    }
-}
-
 #[derive(PartialEq)]
 pub enum EntryFlag {
     Exact,
@@ -65,17 +52,16 @@ impl TableEntry {
                     if self.eval <= alpha {
                         eval = Some(alpha);
                     }
-                    // eval = Some(eval.min(beta))
                 }
                 EntryFlag::BetaCutOff => {
                     if self.eval >= beta {
                         eval = Some(beta);
                     }
-                    // eval = Some(eval.max(alpha))
                 }
             }
         }
-        let best_move = Move::from_short_move(self.best_move, board);
+        // let best_move = Move::from_short_move(self.best_move, board);
+        let best_move = self.best_move.to_move(board);
         (eval, best_move)
     }
 }
@@ -85,4 +71,27 @@ const BYTES_PER_MB: usize = 1024 * 1024;
 pub fn get_table() -> FxHashMap<u64, TableEntry> {
     let entry_size = mem::size_of::<TableEntry>();
     FxHashMap::with_capacity_and_hasher(TARGET_TABLE_SIZE_MB * BYTES_PER_MB / entry_size, Default::default())
+}
+
+#[derive(Clone, Copy, PartialEq)]
+/// Storing a 32 bit move in the transposition table is a waste of space, as 16 bits contains all
+/// you need. However, 32 bits is nice for extra information such as what piece moved, so moves are
+/// truncated before being placed in transposition table, and extracted back into 32 bits before
+/// being returned to caller
+struct ShortMove(u16);
+
+impl ShortMove {
+    fn from_move(m: Move) -> Self {
+        Self(m.as_u16())
+    }
+
+    #[inline(always)]
+    fn to_move(self, board: &Board) -> Move {
+        let m = Move::raw(self.0 as u32);
+        if m == Move::NULL {
+            m
+        } else {
+            Move::raw(self.0 as u32 | board.piece_at(m.origin_square()).expect("There is a piece here").idx() as u32)
+        }
+    }
 }
