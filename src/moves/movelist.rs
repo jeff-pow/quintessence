@@ -29,19 +29,23 @@ impl MoveList {
         self.arr.push(MoveListEntry::new(m, 0));
     }
 
+    pub fn raw_push(&mut self, m: MoveListEntry) {
+        self.arr.push(m);
+    }
+
     pub const fn len(&self) -> usize {
         self.arr.len()
     }
 
     /// Sorts next move into position via partial insertion sort and then returns the move's entry
-    pub(super) fn pick_move(&mut self, idx: usize) -> MoveListEntry {
-        self.sort_next_move(idx);
+    pub(super) fn pick_move(&mut self, idx: usize, end: usize) -> MoveListEntry {
+        self.sort_next_move(idx, end);
         self.arr[idx]
     }
 
-    fn sort_next_move(&mut self, idx: usize) {
+    fn sort_next_move(&mut self, idx: usize, end: usize) {
         let mut max_idx = idx;
-        for i in (idx + 1)..self.len() {
+        for i in (idx + 1)..end {
             if self.arr[i].score > self.arr[max_idx].score {
                 max_idx = i;
             }

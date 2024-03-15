@@ -5,10 +5,8 @@ use super::{
 use crate::{board::board::Board, moves::movegenerator::MGT, search::thread::ThreadData};
 
 pub const TT_MOVE_SCORE: i32 = i32::MAX - 1000;
-pub const GOOD_CAPTURE: i32 = 10_000_000;
-pub const FIRST_KILLER_SCORE: i32 = 1_000_000;
-pub const COUNTER_MOVE_SCORE: i32 = 800_000;
-pub const BAD_CAPTURE: i32 = -10000;
+pub const KILLER: i32 = 1_000_000;
+pub const COUNTER_MOVE: i32 = 800_000;
 
 #[derive(PartialEq, PartialOrd, Eq)]
 pub enum MovePickerPhase {
@@ -21,7 +19,9 @@ pub enum MovePickerPhase {
     Counter,
 
     QuietsInit,
-    Remainders,
+    Quiets,
+
+    BadCaptures,
 
     Finished,
 }
@@ -32,11 +32,14 @@ pub struct MovePicker {
     margin: i32,
 
     moves: MoveList,
-    index: usize,
 
     tt_move: Move,
     killer_move: Move,
     counter_move: Move,
+
+    current: usize,
+    end: usize,
+    end_bad: usize,
 }
 
 impl MovePicker {
@@ -45,13 +48,15 @@ impl MovePicker {
         let counter_move = td.history.get_counter(prev);
         Self {
             moves: MoveList::default(),
-            index: 0,
             phase: MovePickerPhase::TTMove,
             margin,
             tt_move,
             killer_move: td.stack[td.ply].killer_move,
             counter_move,
             skip_quiets,
+            current: 0,
+            end: 0,
+            end_bad: 0,
         }
     }
 
@@ -70,21 +75,33 @@ impl MovePicker {
         if self.phase == MovePickerPhase::CapturesInit {
             self.phase = MovePickerPhase::GoodCaptures;
             board.generate_moves(MGT::CapturesOnly, &mut self.moves);
-            score_captures(td, self.margin, board, &mut self.moves.arr);
+            score_captures(td, board, &mut self.moves.arr);
+            self.end = self.moves.len();
         }
 
         if self.phase == MovePickerPhase::GoodCaptures {
-            if let Some(m) = self.select_next() {
-                if m.score >= GOOD_CAPTURE {
-                    return Some(m);
+            if self.current != self.end {
+                let entry = self.moves.pick_move(self.current, self.end);
+                self.current += 1;
+
+                if entry.m == self.tt_move {
+                    return self.next(board, td);
+                } else if !board.see(entry.m, self.margin) {
+                    self.moves.arr[self.end_bad] = self.moves.arr[self.current - 1];
+                    self.end_bad += 1;
+                    return self.next(board, td);
+                } else {
+                    return Some(entry);
                 }
-                // Move did not win, so we move on to quiet moves, and decrement index to play the
-                // move again later
-                self.index -= 1;
             }
 
-            self.phase =
-                if self.skip_quiets { MovePickerPhase::Finished } else { MovePickerPhase::Killer };
+            self.phase = if self.skip_quiets {
+                self.current = 0;
+                self.end = self.end_bad;
+                MovePickerPhase::Finished
+            } else {
+                MovePickerPhase::Killer
+            };
         }
 
         if self.phase == MovePickerPhase::Killer {
@@ -93,7 +110,7 @@ impl MovePicker {
                 && self.killer_move != self.tt_move
                 && board.is_pseudo_legal(self.killer_move)
             {
-                return Some(MoveListEntry { m: self.killer_move, score: FIRST_KILLER_SCORE });
+                return Some(MoveListEntry { m: self.killer_move, score: KILLER });
             }
         }
 
@@ -104,48 +121,55 @@ impl MovePicker {
                 && self.counter_move != self.killer_move
                 && board.is_pseudo_legal(self.counter_move)
             {
-                return Some(MoveListEntry { m: self.counter_move, score: COUNTER_MOVE_SCORE });
+                return Some(MoveListEntry { m: self.counter_move, score: COUNTER_MOVE });
             }
         }
 
         if self.phase == MovePickerPhase::QuietsInit {
-            self.phase = MovePickerPhase::Remainders;
+            self.phase = MovePickerPhase::Quiets;
             if !self.skip_quiets {
-                let start = self.moves.len();
-                board.generate_moves(MGT::QuietsOnly, &mut self.moves);
+                self.current = self.end_bad;
                 let len = self.moves.len();
-                let quiets = &mut self.moves.arr[start..len];
-                score_quiets(td, quiets);
+                board.generate_moves(MGT::QuietsOnly, &mut self.moves);
+                self.end = self.moves.len();
+                score_quiets(td, &mut self.moves.arr[len..]);
             }
         }
 
-        if self.phase == MovePickerPhase::Remainders {
-            if let Some(m) = self.select_next() {
-                return Some(m);
+        if self.phase == MovePickerPhase::Quiets {
+            if self.current != self.end && !self.skip_quiets {
+                let entry = self.moves.pick_move(self.current, self.end);
+                self.current += 1;
+
+                if self.is_cached(entry.m) {
+                    return self.next(board, td);
+                } else {
+                    return Some(entry);
+                }
+            }
+
+            self.current = 0;
+            self.end = self.end_bad;
+            self.phase = MovePickerPhase::BadCaptures;
+        }
+
+        if self.phase == MovePickerPhase::BadCaptures {
+            if self.current != self.end {
+                // Note: Moves are already sorted by this point, so we don't need to use the
+                // mixed select-sort function in MoveList to get the next move, that's just wasting
+                // work.
+                let entry = self.moves.arr[self.current];
+                self.current += 1;
+                if entry.m == self.tt_move {
+                    return self.next(board, td);
+                } else {
+                    return Some(entry);
+                }
             }
             self.phase = MovePickerPhase::Finished;
         }
 
         None
-    }
-
-    /// Chooses the next valid move with the next highest score
-    fn select_next(&mut self) -> Option<MoveListEntry> {
-        if self.index >= self.moves.len() {
-            return None;
-        }
-
-        let entry = self.moves.pick_move(self.index);
-
-        self.index += 1;
-
-        if self.skip_quiets && entry.score < GOOD_CAPTURE {
-            None
-        } else if self.is_cached(entry.m) {
-            self.select_next()
-        } else {
-            Some(entry)
-        }
     }
 
     /// Determines if a move is stored as a special move by the move picker
@@ -160,9 +184,8 @@ fn score_quiets(td: &ThreadData, moves: &mut [MoveListEntry]) {
     }
 }
 
-fn score_captures(td: &ThreadData, margin: i32, board: &Board, moves: &mut [MoveListEntry]) {
+fn score_captures(td: &ThreadData, board: &Board, moves: &mut [MoveListEntry]) {
     for MoveListEntry { m, score } in moves {
-        *score = (if board.see(*m, margin) { GOOD_CAPTURE } else { BAD_CAPTURE })
-            + td.history.capt_hist(*m, board);
+        *score = td.history.capt_hist(*m, board);
     }
 }
