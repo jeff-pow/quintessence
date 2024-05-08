@@ -1,7 +1,7 @@
 use crate::{
     board::Board,
     chess_move::{Direction, Move},
-    eval::HIDDEN_SIZE,
+    eval::{simd::avx2, HIDDEN_SIZE},
     search::search::{MAX_SEARCH_DEPTH, NEAR_CHECKMATE},
     types::{
         bitboard::Bitboard,
@@ -69,11 +69,11 @@ impl Accumulator {
     }
 
     fn add_sub(&mut self, old: &Accumulator, a1: usize, s1: usize, side: Color) {
-        #[cfg(feature = "avx512")]
+        #[cfg(target_feature = "avx2")]
         unsafe {
-            self.avx512_add_sub(old, a1, s1, side);
+            avx2::add_sub(&mut self[side], &old[side], a1, s1)
         }
-        #[cfg(not(feature = "avx512"))]
+        #[cfg(not(target_feature = "avx2"))]
         {
             let weights = &NET.feature_weights;
             self[side].iter_mut().zip(&weights[a1].0).zip(&weights[s1].0).zip(old[side].iter()).for_each(
@@ -86,11 +86,11 @@ impl Accumulator {
 
     #[allow(clippy::too_many_arguments)]
     fn add_sub_sub(&mut self, old: &Accumulator, a1: usize, s1: usize, s2: usize, side: Color) {
-        #[cfg(feature = "avx512")]
+        #[cfg(target_feature = "avx2")]
         unsafe {
-            self.avx512_add_sub_sub(old, a1, s1, s2, side);
+            avx2::add_sub_sub(&mut self[side], &old[side], a1, s1, s2)
         }
-        #[cfg(not(feature = "avx512"))]
+        #[cfg(not(target_feature = "avx2"))]
         {
             let weights = &NET.feature_weights;
             self[side]
@@ -107,11 +107,11 @@ impl Accumulator {
 
     #[allow(clippy::too_many_arguments)]
     fn add_add_sub_sub(&mut self, old: &Accumulator, a1: usize, a2: usize, s1: usize, s2: usize, side: Color) {
-        #[cfg(feature = "avx512")]
+        #[cfg(target_feature = "avx2")]
         unsafe {
-            self.avx512_add_add_sub_sub(old, a1, a2, s1, s2, side);
+            avx2::add_add_sub_sub(&mut self[side], &old[side], a1, a2, s1, s2)
         }
-        #[cfg(not(feature = "avx512"))]
+        #[cfg(not(target_feature = "avx2"))]
         {
             let weights = &NET.feature_weights;
             self[side]
@@ -145,7 +145,7 @@ impl Accumulator {
             let a2 = Network::feature_idx(rook, m.castle_type().rook_to(), king, side);
             let s2 = Network::feature_idx(rook, m.castle_type().rook_from(), king, side);
 
-            unsafe { add_add_sub_sub_avx2(&mut self[side], &old[side], a1, a2, s1, s2) }
+            self.add_add_sub_sub(old, a1, a2, s1, s2, side)
         } else if self.capture != Piece::None || m.is_en_passant() {
             let cap_square = if m.is_en_passant() {
                 match m.piece_moving().color() {
@@ -158,238 +158,53 @@ impl Accumulator {
             let capture =
                 if m.is_en_passant() { Piece::new(PieceName::Pawn, !m.piece_moving().color()) } else { self.capture };
             let s2 = Network::feature_idx(capture, cap_square, king, side);
-            unsafe { add_sub_sub_avx2(&mut self[side], &old[side], a1, s1, s2) }
+            self.add_sub_sub(old, a1, s1, s2, side)
         } else {
-            unsafe { add_sub_avx2(&mut self[side], &old[side], a1, s1) };
-        }
-    }
-}
-
-const UNROLL: usize = 256;
-const NUM_REGS: usize = 16;
-
-unsafe fn add_sub_avx2(block: &mut Block, old: &Block, a1: usize, s1: usize) {
-    let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
-
-    for c in 0..HIDDEN_SIZE / UNROLL {
-        let offset = c * UNROLL;
-        let new_chunk = &mut block[offset..(c + 1) * UNROLL];
-        let old_chunk = &old[offset..(c + 1) * UNROLL];
-        assert_eq!(new_chunk.len(), UNROLL);
-
-        for (i, c) in old_chunk.chunks(NUM_REGS).enumerate() {
-            regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-
-        let sub_w1 = &NET.feature_weights[s1][offset..(c + 1) * UNROLL];
-        let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in sub_w1.chunks(NUM_REGS).enumerate() {
-            sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
-            *r = _mm256_sub_epi16(*r, s);
-        }
-
-        let add_w1 = &NET.feature_weights[a1][offset..(c + 1) * UNROLL];
-        let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in add_w1.chunks(NUM_REGS).enumerate() {
-            add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
-            *r = _mm256_add_epi16(*r, a);
-        }
-
-        for i in 0..NUM_REGS {
-            _mm256_store_si256(new_chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
-        }
-    }
-}
-
-unsafe fn add_sub_sub_avx2(block: &mut Block, old: &Block, a1: usize, s1: usize, s2: usize) {
-    let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
-
-    for c in 0..HIDDEN_SIZE / UNROLL {
-        let offset = c * UNROLL;
-        let new_chunk = &mut block[offset..(c + 1) * UNROLL];
-        let old_chunk = &old[offset..(c + 1) * UNROLL];
-        assert_eq!(new_chunk.len(), UNROLL);
-
-        for (i, c) in old_chunk.chunks(NUM_REGS).enumerate() {
-            regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-
-        let sub_w1 = &NET.feature_weights[s1][offset..(c + 1) * UNROLL];
-        let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in sub_w1.chunks(NUM_REGS).enumerate() {
-            sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
-            *r = _mm256_sub_epi16(*r, s);
-        }
-
-        let sub_w2 = &NET.feature_weights[s2][offset..(c + 1) * UNROLL];
-        let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in sub_w2.chunks(NUM_REGS).enumerate() {
-            sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
-            *r = _mm256_sub_epi16(*r, s);
-        }
-
-        let add_w1 = &NET.feature_weights[a1][offset..(c + 1) * UNROLL];
-        let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in add_w1.chunks(NUM_REGS).enumerate() {
-            add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
-            *r = _mm256_add_epi16(*r, a);
-        }
-
-        for i in 0..NUM_REGS {
-            _mm256_store_si256(new_chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
-        }
-    }
-}
-
-unsafe fn add_add_sub_sub_avx2(block: &mut Block, old: &Block, a1: usize, a2: usize, s1: usize, s2: usize) {
-    let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
-
-    for c in 0..HIDDEN_SIZE / UNROLL {
-        let offset = c * UNROLL;
-        let new_chunk = &mut block[offset..(c + 1) * UNROLL];
-        let old_chunk = &old[offset..(c + 1) * UNROLL];
-        assert_eq!(new_chunk.len(), UNROLL);
-
-        for (i, c) in old_chunk.chunks(NUM_REGS).enumerate() {
-            regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-
-        let sub_w1 = &NET.feature_weights[s1][offset..(c + 1) * UNROLL];
-        let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in sub_w1.chunks(NUM_REGS).enumerate() {
-            sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
-            *r = _mm256_sub_epi16(*r, s);
-        }
-
-        let sub_w2 = &NET.feature_weights[s2][offset..(c + 1) * UNROLL];
-        let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in sub_w2.chunks(NUM_REGS).enumerate() {
-            sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
-            *r = _mm256_sub_epi16(*r, s);
-        }
-
-        let add_w1 = &NET.feature_weights[a1][offset..(c + 1) * UNROLL];
-        let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in add_w1.chunks(NUM_REGS).enumerate() {
-            add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
-            *r = _mm256_add_epi16(*r, a);
-        }
-
-        let add_w2 = &NET.feature_weights[a2][offset..(c + 1) * UNROLL];
-        let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-        // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-        for (i, c) in add_w2.chunks(NUM_REGS).enumerate() {
-            add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-        for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
-            *r = _mm256_add_epi16(*r, a);
-        }
-
-        for i in 0..NUM_REGS {
-            _mm256_store_si256(new_chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
-        }
-    }
-}
-
-unsafe fn avx2_update(block: &mut Block, adds: &[u16], subs: &[u16]) {
-    let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
-
-    for c in 0..HIDDEN_SIZE / UNROLL {
-        let offset = c * UNROLL;
-        let chunk = &mut block[offset..(c + 1) * UNROLL];
-        assert_eq!(chunk.len(), UNROLL);
-
-        for (i, c) in chunk.chunks(NUM_REGS).enumerate() {
-            regs[i] = _mm256_load_si256(c.as_ptr().cast());
-        }
-
-        for &sub in subs {
-            let weights = &NET.feature_weights[usize::from(sub)][offset..(c + 1) * UNROLL];
-            let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-            // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-            for (i, c) in weights.chunks(NUM_REGS).enumerate() {
-                sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-            }
-            for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
-                *r = _mm256_sub_epi16(*r, s);
-            }
-        }
-
-        for &add in adds {
-            let weights = &NET.feature_weights[usize::from(add)][offset..(c + 1) * UNROLL];
-            let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
-            // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
-            for (i, c) in weights.chunks(NUM_REGS).enumerate() {
-                add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
-            }
-            for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
-                *r = _mm256_add_epi16(*r, a);
-            }
-        }
-
-        for i in 0..NUM_REGS {
-            _mm256_store_si256(chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
+            self.add_sub(old, a1, s1, side)
         }
     }
 }
 
 // Credit to akimbo. This function streamlines the assembly generated and prevents unnecessary
 // redundant loads and stores to the same simd vectors.
-pub fn updateasdf(acc: &mut Block, adds: &[u16], subs: &[u16]) {
-    const REGISTERS: usize = 8;
-    const ELEMENTS_PER_LOOP: usize = REGISTERS * 16; // Assumes 16 u16's per 256 bit avx2 register
+pub fn update(block: &mut Block, adds: &[u16], subs: &[u16]) {
+    #[cfg(target_feature = "avx2")]
+    unsafe {
+        avx2::update(block, adds, subs);
+    }
+    #[cfg(not(target_feature = "avx2"))]
+    {
+        const REGISTERS: usize = 8;
+        const ELEMENTS_PER_LOOP: usize = REGISTERS * 16; // Assumes 16 u16's per 256 bit avx2 register
 
-    let mut regs = [0i16; ELEMENTS_PER_LOOP];
+        let mut regs = [0i16; ELEMENTS_PER_LOOP];
 
-    for i in 0..HIDDEN_SIZE / ELEMENTS_PER_LOOP {
-        let offset = ELEMENTS_PER_LOOP * i;
+        for i in 0..HIDDEN_SIZE / ELEMENTS_PER_LOOP {
+            let offset = ELEMENTS_PER_LOOP * i;
 
-        for (reg, &j) in regs.iter_mut().zip(acc[offset..].iter()) {
-            *reg = j;
-        }
-
-        for &add in adds {
-            let weights = &NET.feature_weights[usize::from(add)];
-
-            for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                *reg += w;
+            for (reg, &j) in regs.iter_mut().zip(block[offset..].iter()) {
+                *reg = j;
             }
-        }
 
-        for &sub in subs {
-            let weights = &NET.feature_weights[usize::from(sub)];
+            for &add in adds {
+                let weights = &NET.feature_weights[usize::from(add)];
 
-            for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                *reg -= w;
+                for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
+                    *reg += w;
+                }
             }
-        }
 
-        for (a, &r) in acc[offset..].iter_mut().zip(regs.iter()) {
-            *a = r;
+            for &sub in subs {
+                let weights = &NET.feature_weights[usize::from(sub)];
+
+                for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
+                    *reg -= w;
+                }
+            }
+
+            for (a, &r) in block[offset..].iter_mut().zip(regs.iter()) {
+                *a = r;
+            }
         }
     }
 }
@@ -405,7 +220,7 @@ impl Board {
                 let idx = Network::feature_idx(p, sq, self.king_square(view), view);
                 vec.push(idx as u16);
             }
-            updateasdf(&mut acc.vals[view], &vec, &[]);
+            update(&mut acc.vals[view], &vec, &[]);
         }
         acc
     }
@@ -551,8 +366,8 @@ impl AccumulatorCache {
         entry.pieces = board.piece_bbs();
         entry.color = board.color_bbs();
 
-        // updateasdf(&mut entry.acc, &adds, &subs);
-        unsafe { avx2_update(&mut entry.acc, &adds, &subs) };
+        update(&mut entry.acc, &adds, &subs);
+        // unsafe { avx2_update(&mut entry.acc, &adds, &subs) };
         acc.vals[view] = entry.acc;
     }
 }

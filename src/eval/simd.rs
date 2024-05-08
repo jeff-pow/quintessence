@@ -3,7 +3,8 @@ pub(crate) mod avx2 {
     use std::arch::x86_64::*;
 
     use crate::eval::network::{RELU_MAX, RELU_MIN};
-    use crate::eval::{Block, HIDDEN_SIZE};
+    use crate::eval::{Block, HIDDEN_SIZE, NET};
+    use std::mem::MaybeUninit;
 
     const CHUNK_SIZE: usize = 16;
     /// Number of SIMD vectors contained within one hidden layer
@@ -46,6 +47,198 @@ pub(crate) mod avx2 {
         let max = _mm256_set1_epi16(RELU_MAX);
 
         _mm256_min_epi16(_mm256_max_epi16(i, min), max)
+    }
+
+    const UNROLL: usize = 256;
+    const NUM_REGS: usize = 16;
+
+    pub unsafe fn add_sub(block: &mut Block, old: &Block, a1: usize, s1: usize) {
+        let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        for c in 0..HIDDEN_SIZE / UNROLL {
+            let offset = c * UNROLL;
+            let new_chunk = &mut block[offset..(c + 1) * UNROLL];
+            let old_chunk = &old[offset..(c + 1) * UNROLL];
+            assert_eq!(new_chunk.len(), UNROLL);
+
+            for (i, c) in old_chunk.chunks(NUM_REGS).enumerate() {
+                regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+
+            let sub_w1 = &NET.feature_weights[s1][offset..(c + 1) * UNROLL];
+            let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in sub_w1.chunks(NUM_REGS).enumerate() {
+                sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
+                *r = _mm256_sub_epi16(*r, s);
+            }
+
+            let add_w1 = &NET.feature_weights[a1][offset..(c + 1) * UNROLL];
+            let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in add_w1.chunks(NUM_REGS).enumerate() {
+                add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
+                *r = _mm256_add_epi16(*r, a);
+            }
+
+            for i in 0..NUM_REGS {
+                _mm256_store_si256(new_chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
+            }
+        }
+    }
+
+    pub unsafe fn add_sub_sub(block: &mut Block, old: &Block, a1: usize, s1: usize, s2: usize) {
+        let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        for c in 0..HIDDEN_SIZE / UNROLL {
+            let offset = c * UNROLL;
+            let new_chunk = &mut block[offset..(c + 1) * UNROLL];
+            let old_chunk = &old[offset..(c + 1) * UNROLL];
+            assert_eq!(new_chunk.len(), UNROLL);
+
+            for (i, c) in old_chunk.chunks(NUM_REGS).enumerate() {
+                regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+
+            let sub_w1 = &NET.feature_weights[s1][offset..(c + 1) * UNROLL];
+            let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in sub_w1.chunks(NUM_REGS).enumerate() {
+                sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
+                *r = _mm256_sub_epi16(*r, s);
+            }
+
+            let sub_w2 = &NET.feature_weights[s2][offset..(c + 1) * UNROLL];
+            let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in sub_w2.chunks(NUM_REGS).enumerate() {
+                sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
+                *r = _mm256_sub_epi16(*r, s);
+            }
+
+            let add_w1 = &NET.feature_weights[a1][offset..(c + 1) * UNROLL];
+            let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in add_w1.chunks(NUM_REGS).enumerate() {
+                add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
+                *r = _mm256_add_epi16(*r, a);
+            }
+
+            for i in 0..NUM_REGS {
+                _mm256_store_si256(new_chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
+            }
+        }
+    }
+
+    pub unsafe fn add_add_sub_sub(block: &mut Block, old: &Block, a1: usize, a2: usize, s1: usize, s2: usize) {
+        let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        for c in 0..HIDDEN_SIZE / UNROLL {
+            let offset = c * UNROLL;
+            let new_chunk = &mut block[offset..(c + 1) * UNROLL];
+            let old_chunk = &old[offset..(c + 1) * UNROLL];
+            assert_eq!(new_chunk.len(), UNROLL);
+
+            for (i, c) in old_chunk.chunks(NUM_REGS).enumerate() {
+                regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+
+            let sub_w1 = &NET.feature_weights[s1][offset..(c + 1) * UNROLL];
+            let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in sub_w1.chunks(NUM_REGS).enumerate() {
+                sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
+                *r = _mm256_sub_epi16(*r, s);
+            }
+
+            let sub_w2 = &NET.feature_weights[s2][offset..(c + 1) * UNROLL];
+            let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in sub_w2.chunks(NUM_REGS).enumerate() {
+                sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
+                *r = _mm256_sub_epi16(*r, s);
+            }
+
+            let add_w1 = &NET.feature_weights[a1][offset..(c + 1) * UNROLL];
+            let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in add_w1.chunks(NUM_REGS).enumerate() {
+                add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
+                *r = _mm256_add_epi16(*r, a);
+            }
+
+            let add_w2 = &NET.feature_weights[a2][offset..(c + 1) * UNROLL];
+            let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+            // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+            for (i, c) in add_w2.chunks(NUM_REGS).enumerate() {
+                add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+            for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
+                *r = _mm256_add_epi16(*r, a);
+            }
+
+            for i in 0..NUM_REGS {
+                _mm256_store_si256(new_chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
+            }
+        }
+    }
+
+    pub unsafe fn update(block: &mut Block, adds: &[u16], subs: &[u16]) {
+        let mut regs: [__m256i; NUM_REGS] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        for c in 0..HIDDEN_SIZE / UNROLL {
+            let offset = c * UNROLL;
+            let chunk = &mut block[offset..(c + 1) * UNROLL];
+            assert_eq!(chunk.len(), UNROLL);
+
+            for (i, c) in chunk.chunks(NUM_REGS).enumerate() {
+                regs[i] = _mm256_load_si256(c.as_ptr().cast());
+            }
+
+            for &sub in subs {
+                let weights = &NET.feature_weights[usize::from(sub)][offset..(c + 1) * UNROLL];
+                let mut sub_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+                // let mut sub_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+                for (i, c) in weights.chunks(NUM_REGS).enumerate() {
+                    sub_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+                }
+                for (r, &s) in regs.iter_mut().zip(sub_regs.iter()) {
+                    *r = _mm256_sub_epi16(*r, s);
+                }
+            }
+
+            for &add in adds {
+                let weights = &NET.feature_weights[usize::from(add)][offset..(c + 1) * UNROLL];
+                let mut add_regs: [__m256i; NUM_REGS] = { MaybeUninit::uninit().assume_init() };
+                // let mut add_regs: [__m256i; NUM_REGS] = { std::mem::zeroed() };
+                for (i, c) in weights.chunks(NUM_REGS).enumerate() {
+                    add_regs[i] = _mm256_load_si256(c.as_ptr().cast());
+                }
+                for (r, &a) in regs.iter_mut().zip(add_regs.iter()) {
+                    *r = _mm256_add_epi16(*r, a);
+                }
+            }
+
+            for i in 0..NUM_REGS {
+                _mm256_store_si256(chunk.as_mut_ptr().add(i * 16).cast(), regs[i]);
+            }
+        }
     }
 }
 
