@@ -7,7 +7,7 @@ pub mod network;
 mod simd;
 
 // TODO: perf list and align 64
-type Block = [i16; HIDDEN_SIZE];
+type Block = Align64<[i16; HIDDEN_SIZE]>;
 
 pub const INPUT_SIZE: usize = 768;
 const HIDDEN_SIZE: usize = 1536;

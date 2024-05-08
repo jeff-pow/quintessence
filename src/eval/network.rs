@@ -1,4 +1,4 @@
-use super::{Align64, Block, INPUT_SIZE};
+use super::{Block, INPUT_SIZE};
 
 use crate::types::{
     pieces::{Color, Piece, NUM_PIECES},
@@ -34,9 +34,9 @@ pub static BUCKETS: [usize; 64] = [
 #[derive(Debug)]
 #[repr(C, align(64))]
 pub(super) struct Network {
-    pub feature_weights: [Align64<Block>; INPUT_SIZE * NUM_BUCKETS],
-    pub feature_bias: Align64<Block>,
-    pub output_weights: [Align64<Block>; 2],
+    pub feature_weights: [Block; INPUT_SIZE * NUM_BUCKETS],
+    pub feature_bias: Block,
+    pub output_weights: [Block; 2],
     pub output_bias: i16,
 }
 
