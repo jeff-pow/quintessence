@@ -11,6 +11,7 @@ use crate::{
 
 use super::{
     network::{flatten, Network, BUCKETS, NORMALIZATION_FACTOR, NUM_BUCKETS, QAB, SCALE},
+    simd2::Vec16,
     Block, NET,
 };
 use arrayvec::ArrayVec;
@@ -168,43 +169,32 @@ impl Accumulator {
 // Credit to akimbo. This function streamlines the assembly generated and prevents unnecessary
 // redundant loads and stores to the same simd vectors.
 pub fn update(block: &mut Block, adds: &[u16], subs: &[u16]) {
-    #[cfg(target_feature = "avx2")]
-    unsafe {
-        avx2::update(block, adds, subs);
-    }
-    #[cfg(not(target_feature = "avx2"))]
-    {
-        const REGISTERS: usize = 8;
-        const ELEMENTS_PER_LOOP: usize = REGISTERS * 16; // Assumes 16 u16's per 256 bit avx2 register
+    let mut regs = Vec16::empty_regs();
+    for c in 0..HIDDEN_SIZE / Vec16::UNROLL {
+        let unroll_offset = c * Vec16::UNROLL;
 
-        let mut regs = [0i16; ELEMENTS_PER_LOOP];
+        for (idx, reg) in regs.iter_mut().enumerate() {
+            *reg = Vec16::load(block, unroll_offset + idx * Vec16::POPULATION);
+        }
 
-        for i in 0..HIDDEN_SIZE / ELEMENTS_PER_LOOP {
-            let offset = ELEMENTS_PER_LOOP * i;
-
-            for (reg, &j) in regs.iter_mut().zip(block[offset..].iter()) {
-                *reg = j;
+        for &add in adds {
+            let weights = &NET.feature_weights[usize::from(add)];
+            for (idx, reg) in regs.iter_mut().enumerate() {
+                let x = Vec16::load(weights, unroll_offset + idx * Vec16::POPULATION);
+                *reg = reg.add(x);
             }
+        }
 
-            for &add in adds {
-                let weights = &NET.feature_weights[usize::from(add)];
-
-                for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                    *reg += w;
-                }
+        for &sub in subs {
+            let weights = &NET.feature_weights[usize::from(sub)];
+            for (idx, reg) in regs.iter_mut().enumerate() {
+                let x = Vec16::load(weights, unroll_offset + idx * Vec16::POPULATION);
+                *reg = reg.sub(x);
             }
+        }
 
-            for &sub in subs {
-                let weights = &NET.feature_weights[usize::from(sub)];
-
-                for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                    *reg -= w;
-                }
-            }
-
-            for (a, &r) in block[offset..].iter_mut().zip(regs.iter()) {
-                *a = r;
-            }
+        for (idx, reg) in regs.iter_mut().enumerate() {
+            reg.store(block, unroll_offset + idx * Vec16::POPULATION)
         }
     }
 }

@@ -242,7 +242,7 @@ pub(crate) mod avx2 {
     }
 }
 
-#[cfg(feature = "avx512")]
+// #[cfg(feature = "avx512")]
 pub(crate) mod avx512 {
 
     use std::arch::x86_64::*;

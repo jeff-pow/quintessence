@@ -1,5 +1,6 @@
 #![allow(clippy::module_inception)]
 #![cfg_attr(feature = "avx512", feature(stdarch_x86_avx512))]
+#![cfg_attr(target_feature = "avx512bw", feature(stdarch_x86_avx512))]
 
 mod attack_boards;
 mod bench;
