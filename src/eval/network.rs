@@ -96,7 +96,7 @@ pub(super) fn flatten(acc: &Block, weights: &Block) -> i32 {
     #[cfg(all(not(target_feature = "avx2"), not(feature = "avx512")))]
     {
         let mut sum = 0;
-        for (&i, &w) in acc.iter().zip(weights) {
+        for (&i, &w) in acc.iter().zip(weights.iter()) {
             sum += screlu(i) * i32::from(w);
         }
         sum

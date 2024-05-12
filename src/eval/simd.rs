@@ -1,5 +1,5 @@
 #[cfg(all(not(feature = "avx512"), target_feature = "avx2"))]
-pub(crate) mod avx2 {
+pub mod avx2 {
     use std::arch::x86_64::*;
 
     use crate::eval::network::{RELU_MAX, RELU_MIN};
@@ -242,7 +242,7 @@ pub(crate) mod avx2 {
     }
 }
 
-// #[cfg(feature = "avx512")]
+#[cfg(feature = "avx512")]
 pub(crate) mod avx512 {
 
     use std::arch::x86_64::*;

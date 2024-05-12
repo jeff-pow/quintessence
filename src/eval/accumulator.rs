@@ -1,7 +1,7 @@
 use crate::{
     board::Board,
     chess_move::{Direction, Move},
-    eval::{simd::avx2, HIDDEN_SIZE},
+    eval::HIDDEN_SIZE,
     search::search::{MAX_SEARCH_DEPTH, NEAR_CHECKMATE},
     types::{
         bitboard::Bitboard,
@@ -9,20 +9,16 @@ use crate::{
     },
 };
 
+#[cfg(target_feature = "avx2")]
+use crate::eval::simd::avx2;
+
 use super::{
     network::{flatten, Network, BUCKETS, NORMALIZATION_FACTOR, NUM_BUCKETS, QAB, SCALE},
     simd2::Vec16,
     Block, NET,
 };
 use arrayvec::ArrayVec;
-use std::{
-    arch::x86_64::{
-        __m256, __m256i, _mm256_add_epi16, _mm256_load_si256, _mm256_set1_epi16, _mm256_store_pd, _mm256_store_si256,
-        _mm256_sub_epi16,
-    },
-    mem::MaybeUninit,
-    ops::{Index, IndexMut},
-};
+use std::ops::{Index, IndexMut};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Accumulator {

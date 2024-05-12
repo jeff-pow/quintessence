@@ -33,7 +33,7 @@ impl Vec16 {
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
         {
-            self.0 + rhs.0
+            Self(self.0 + rhs.0)
         }
     }
 
@@ -48,7 +48,7 @@ impl Vec16 {
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
         {
-            self.0 - rhs.0
+            Self(self.0 - rhs.0)
         }
     }
 
@@ -95,11 +95,11 @@ impl Vec16 {
             let min = _mm256_set1_epi16(RELU_MIN);
             let max = _mm256_set1_epi16(RELU_MAX);
 
-            _mm256_min_epi16(_mm256_max_epi16(i, min), max)
+            Self(_mm256_min_epi16(_mm256_max_epi16(self.0, min), max))
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
         {
-            i.clamp(RELU_MIN, RELU_MAX)
+            Self(self.0.clamp(RELU_MIN, RELU_MAX))
         }
     }
 
@@ -117,7 +117,7 @@ impl Vec16 {
             Self(_mm256_load_si256(mem.as_ptr().add(offset).cast()))
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
-        {
+        unsafe {
             Self(*mem.get_unchecked(offset))
         }
     }
@@ -132,8 +132,8 @@ impl Vec16 {
             _mm256_store_si256(mem.as_mut_ptr().add(offset).cast(), self.0)
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
-        {
-            *mem.get_unchecked(offset) = self.0
+        unsafe {
+            *mem.get_unchecked_mut(offset) = self.0
         }
     }
 }
@@ -157,7 +157,7 @@ impl Vec32 {
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
         {
-            self.0 + rhs.0
+            Self(self.0 + rhs.0)
         }
     }
 
@@ -172,7 +172,7 @@ impl Vec32 {
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
         {
-            self.0 - rhs.0
+            Self(self.0 - rhs.0)
         }
     }
 
@@ -209,7 +209,7 @@ impl Vec32 {
         }
         #[cfg(all(target_feature = "avx2", not(target_feature = "avx512bw")))]
         unsafe {
-            Self(_mm256_setzero_si512())
+            Self(_mm256_setzero_si256())
         }
         #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
         {
