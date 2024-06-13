@@ -5,6 +5,7 @@ use self::network::Network;
 pub mod accumulator;
 pub mod network;
 mod simd;
+mod simd2;
 
 // TODO: perf list and align 64
 type Block = [i16; HIDDEN_SIZE];

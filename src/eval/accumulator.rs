@@ -17,7 +17,7 @@ use arrayvec::ArrayVec;
 use std::ops::{Index, IndexMut};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(C, align(64))]
+#[repr(align(64))]
 pub struct Accumulator {
     pub vals: [Align64<Block>; 2],
     pub correct: [bool; 2],
