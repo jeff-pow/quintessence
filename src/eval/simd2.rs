@@ -181,7 +181,6 @@ impl Vec32 {
         unsafe {
             _mm512_reduce_add_epi32(self.0)
         }
-
         #[cfg(all(target_feature = "avx2", not(target_feature = "avx512bw")))]
         unsafe {
             let upper_128 = _mm256_extracti128_si256::<1>(self.0);

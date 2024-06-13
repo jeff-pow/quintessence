@@ -11,6 +11,7 @@ use crate::{
 
 use super::{
     network::{flatten, Network, BUCKETS, NORMALIZATION_FACTOR, NUM_BUCKETS, QAB, SCALE},
+    simd2::Vec16,
     Align64, Block, NET,
 };
 use arrayvec::ArrayVec;
@@ -155,6 +156,36 @@ impl Accumulator {
             self.add_sub_sub(old, a1, s1, s2, side);
         } else {
             self.add_sub(old, a1, s1, side);
+        }
+    }
+}
+
+pub fn update_simd(acc: &mut Block, adds: &[u16], subs: &[u16]) {
+    let mut regs = Vec16::empty_regs();
+
+    for c in 0..HIDDEN_SIZE / Vec16::UNROLL {
+        let unroll_offset = c * Vec16::UNROLL;
+
+        for (idx, reg) in regs.iter_mut().enumerate() {
+            *reg = Vec16::load(acc, unroll_offset + idx * Vec16::POPULATION);
+        }
+
+        for &a in adds {
+            let weights = &NET.feature_weights[usize::from(a)];
+            for (idx, reg) in regs.iter_mut().enumerate() {
+                *reg = Vec16::add(*reg, Vec16::load(weights, unroll_offset + idx * Vec16::POPULATION));
+            }
+        }
+
+        for &s in subs {
+            let weights = &NET.feature_weights[usize::from(s)];
+            for (idx, reg) in regs.iter_mut().enumerate() {
+                *reg = Vec16::sub(*reg, Vec16::load(weights, unroll_offset + idx * Vec16::POPULATION));
+            }
+        }
+
+        for (idx, reg) in regs.iter().enumerate() {
+            reg.store(acc, unroll_offset + idx * Vec16::POPULATION);
         }
     }
 }
@@ -353,7 +384,8 @@ impl AccumulatorCache {
         entry.pieces = board.piece_bbs();
         entry.color = board.color_bbs();
 
-        update(&mut entry.acc, &adds, &subs);
+        // update(&mut entry.acc, &adds, &subs);
+        update_simd(&mut entry.acc, &adds, &subs);
         acc.vals[view] = entry.acc;
     }
 }

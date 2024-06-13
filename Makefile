@@ -23,7 +23,11 @@ release:
 	cargo rustc --release --target=x86_64-pc-windows-gnu -- -C target-feature=+crt-static -C target-cpu=x86-64-v4 --emit link=Titan-x86_64-windows-v4.exe
 
 avx512:
-	cargo rustc --release --features avx512 -- -C target-cpu=native --emit link=$(EXE)
+	cargo rustc --release -- -C target-cpu=x86-64-v4 --emit link=titan
+
+
+avx2:
+	cargo rustc --release -- -C target-cpu=x86-64-v4 --emit link=titan
 
 bench:
 	cargo rustc --release -- -C target-cpu=native --emit link=$(EXE)
