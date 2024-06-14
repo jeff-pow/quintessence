@@ -160,7 +160,8 @@ impl Accumulator {
     }
 }
 
-pub fn update_simd(acc: &mut Block, adds: &[u16], subs: &[u16]) {
+#[inline(never)]
+pub fn update_interesting_1(acc: &mut Block, adds: &[u16], subs: &[u16]) {
     let mut regs = Vec16::empty_regs();
 
     for c in 0..HIDDEN_SIZE / Vec16::UNROLL {
@@ -192,7 +193,8 @@ pub fn update_simd(acc: &mut Block, adds: &[u16], subs: &[u16]) {
 
 // Credit to akimbo. This function streamlines the assembly generated and prevents unnecessary
 // redundant loads and stores to the same simd vectors.
-pub fn update(acc: &mut Align64<Block>, adds: &[u16], subs: &[u16]) {
+#[inline(never)]
+pub fn update_interesting_2(acc: &mut Align64<Block>, adds: &[u16], subs: &[u16]) {
     const REGISTERS: usize = 8;
     const ELEMENTS_PER_LOOP: usize = REGISTERS * 256 / 16;
 
@@ -238,7 +240,7 @@ impl Board {
                 let idx = Network::feature_idx(p, sq, self.king_square(view), view);
                 vec.push(idx as u16);
             }
-            update(&mut acc.vals[view], &vec, &[]);
+            update_interesting_2(&mut acc.vals[view], &vec, &[]);
         }
         acc
     }
@@ -385,7 +387,7 @@ impl AccumulatorCache {
         entry.color = board.color_bbs();
 
         // update(&mut entry.acc, &adds, &subs);
-        update_simd(&mut entry.acc, &adds, &subs);
+        update_interesting_1(&mut entry.acc, &adds, &subs);
         acc.vals[view] = entry.acc;
     }
 }

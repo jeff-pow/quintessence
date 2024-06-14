@@ -6,7 +6,7 @@ use core::arch::x86_64::*;
 pub const REGS: usize = 8;
 
 #[cfg(all(target_feature = "avx2", not(target_feature = "avx512bw")))]
-pub const REGS: usize = 16;
+pub const REGS: usize = 8;
 
 #[cfg(not(any(target_feature = "avx512bw", target_feature = "avx2")))]
 pub const REGS: usize = 16;
