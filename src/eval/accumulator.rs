@@ -387,7 +387,7 @@ impl AccumulatorCache {
         entry.color = board.color_bbs();
 
         // update(&mut entry.acc, &adds, &subs);
-        update_interesting_1(&mut entry.acc, &adds, &subs);
+        update_interesting_2(&mut entry.acc, &adds, &subs);
         acc.vals[view] = entry.acc;
     }
 }

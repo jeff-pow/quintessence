@@ -1,4 +1,7 @@
-use super::{Align64, Block, INPUT_SIZE};
+use super::{
+    simd2::{Vec16, Vec32},
+    Align64, Block, HIDDEN_SIZE, INPUT_SIZE,
+};
 
 use crate::types::{
     pieces::{Color, Piece, NUM_PIECES},
@@ -83,24 +86,16 @@ fn crelu(i: i16) -> i32 {
 }
 
 pub(super) fn flatten(acc: &Block, weights: &Block) -> i32 {
-    #[cfg(feature = "avx512")]
-    {
-        use super::simd::avx512;
-        unsafe { avx512::flatten(acc, weights) }
+    let mut sum = Vec32::zero();
+    for i in 0..HIDDEN_SIZE / Vec16::POPULATION {
+        let us_vector = Vec16::load(acc, i * Vec16::POPULATION);
+        let weights = Vec16::load(weights, i * Vec16::POPULATION);
+        let crelu_result = us_vector.clipped_relu();
+        let v = crelu_result.mul_lo(weights);
+        let mul = v.mul_accumulate(crelu_result);
+        sum = sum.add(mul);
     }
-    #[cfg(all(not(feature = "avx512"), target_feature = "avx2"))]
-    {
-        use super::simd::avx2;
-        unsafe { avx2::flatten(acc, weights) }
-    }
-    #[cfg(all(not(target_feature = "avx2"), not(feature = "avx512")))]
-    {
-        let mut sum = 0;
-        for (&i, &w) in acc.iter().zip(weights) {
-            sum += screlu(i) * i32::from(w);
-        }
-        sum
-    }
+    sum.reduce_add()
 }
 
 #[cfg(test)]
