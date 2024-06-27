@@ -6,8 +6,8 @@ use crate::search::search::STALEMATE;
 use crate::thread::ThreadData;
 use crate::transposition::{EntryFlag, TranspositionTable};
 
-use super::search::MAX_SEARCH_DEPTH;
 use super::search::{CHECKMATE, INFINITY};
+use super::search::{MAX_SEARCH_DEPTH, NEAR_CHECKMATE};
 use super::PV;
 
 pub(super) fn quiescence<const IS_PV: bool>(
@@ -90,16 +90,23 @@ pub(super) fn quiescence<const IS_PV: bool>(
 
     let in_check = board.in_check();
     // Try to find an evasion if we are in check, otherwise just generate captures
-    let mut picker = MovePicker::new(table_move, td, 1, !in_check);
+    let mut picker = MovePicker::new(table_move, td, 0, !in_check);
 
     let mut best_score = if in_check { -CHECKMATE } else { estimated_eval };
 
     let mut best_move = Move::NULL;
     let mut moves_searched = 0;
 
+    let futility = estimated_eval + 130;
+
     while let Some(MoveListEntry { m, .. }) = picker.next(board, td) {
         let mut node_pv = PV::default();
         let mut new_b = *board;
+
+        if best_score > -NEAR_CHECKMATE && !in_check && futility <= alpha && !board.see(m, 1) {
+            best_score = best_score.max(futility);
+            continue;
+        }
 
         tt.prefetch(board.hash_after(m));
         if !new_b.make_move(m) {
