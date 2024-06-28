@@ -97,7 +97,7 @@ pub(super) fn quiescence<const IS_PV: bool>(
     let mut best_move = Move::NULL;
     let mut moves_searched = 0;
 
-    let futility = estimated_eval + 130;
+    let futility = estimated_eval + 70;
 
     while let Some(MoveListEntry { m, .. }) = picker.next(board, td) {
         let mut node_pv = PV::default();
