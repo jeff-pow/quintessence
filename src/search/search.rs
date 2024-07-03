@@ -489,12 +489,13 @@ fn negamax<const IS_PV: bool>(
             td.stack[td.ply].killer_move = Some(m);
         }
         // Update history tables on a beta cutoff
+        // TODO: depth + best_score > beta + <const> and cutnode dependent depth too
         td.history.update_histories(m, &quiets_tried, &tacticals_tried, board, depth, &td.stack, td.ply);
         break;
     }
 
     if moves_searched == 0 {
-        return if singular_search {
+        best_score = if singular_search {
             alpha
         } else if in_check {
             // Distance from root is returned in order for other recursive calls to determine
