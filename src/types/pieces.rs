@@ -114,7 +114,7 @@ impl PieceName {
 }
 
 impl_index!(Piece);
-#[derive(Eq, Copy, Clone, PartialEq, Debug)]
+#[derive(Eq, Copy, Clone, PartialEq, Debug, Default)]
 #[repr(u8)]
 pub enum Piece {
     WhitePawn,
@@ -135,6 +135,7 @@ pub enum Piece {
     WhiteKing,
     BlackKing,
 
+    #[default]
     None,
 }
 

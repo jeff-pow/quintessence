@@ -6,7 +6,7 @@ pub const MAX_HIST_VAL: i32 = 16384;
 
 #[derive(Clone, Copy)]
 pub struct HistoryEntry {
-    score: i32,
+    pub score: i32,
     counter: Option<Move>,
     // King can't be captured, so it doesn't need an entry
     capt_hist: [i32; 5],
@@ -21,10 +21,10 @@ impl Default for HistoryEntry {
 
 #[derive(Clone)]
 pub struct HistoryTable {
-    search_history: Box<[[HistoryEntry; 64]; 12]>,
+    pub search_history: Box<[[HistoryEntry; 64]; 12]>,
 }
 
-fn update_history(score: &mut i32, bonus: i32) {
+pub fn update_history(score: &mut i32, bonus: i32) {
     *score += bonus - *score * bonus.abs() / MAX_HIST_VAL;
 }
 
@@ -83,7 +83,7 @@ impl HistoryTable {
         }
     }
 
-    fn update_quiet_history(&mut self, m: Move, bonus: i32) {
+    pub fn update_quiet_history(&mut self, m: Move, bonus: i32) {
         let i = &mut self.search_history[m.piece_moving()][m.to()].score;
         update_history(i, bonus);
     }

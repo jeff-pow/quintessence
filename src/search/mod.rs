@@ -2,7 +2,7 @@ use arrayvec::ArrayVec;
 use std::ops::{Index, IndexMut};
 
 use self::{game_time::Clock, search::MAX_SEARCH_DEPTH};
-use crate::chess_move::Move;
+use crate::{chess_move::Move, types::pieces::Piece};
 
 pub mod game_time;
 pub mod lmr_table;
@@ -11,6 +11,8 @@ pub mod search;
 
 #[derive(Clone, Copy, Default)]
 pub struct PlyEntry {
+    pub in_check: bool,
+    pub capture: Piece,
     pub killer_move: Option<Move>,
     pub played_move: Option<Move>,
     pub static_eval: i32,

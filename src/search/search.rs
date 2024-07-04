@@ -11,6 +11,8 @@ use crate::transposition::{EntryFlag, TableEntry, TranspositionTable};
 
 use super::quiescence::quiescence;
 use super::PV;
+use crate::history_table::update_history;
+use crate::types::pieces::{Piece, PieceName};
 use arrayvec::ArrayVec;
 
 pub const CHECKMATE: i32 = 25000;
@@ -142,6 +144,7 @@ fn negamax<const IS_PV: bool>(
 ) -> i32 {
     let is_root = td.ply == 0;
     let in_check = board.in_check();
+    td.stack[td.ply].in_check = in_check;
 
     let singular_move = td.stack[td.ply].singular;
     let singular_search = singular_move != Move::NULL;
@@ -241,6 +244,16 @@ fn negamax<const IS_PV: bool>(
         estimated_eval = eval;
     };
 
+    if td.ply > 0
+        && td.stack[td.ply - 1].played_move.is_some()
+        && !td.stack[td.ply - 1].in_check
+        && td.stack[td.ply - 1].capture != Piece::None
+    {
+        let bonus = (-10 * (td.stack[td.ply - 1].static_eval + estimated_eval)).clamp(-1590, 1371) + 800;
+        let prev_m = td.stack[td.ply - 1].played_move.unwrap();
+        update_history(&mut td.history.search_history[prev_m.piece_moving()][prev_m.to()].score, bonus);
+    }
+
     td.stack[td.ply].static_eval = estimated_eval;
     let improving = {
         if in_check {
@@ -294,6 +307,7 @@ fn negamax<const IS_PV: bool>(
         tt.prefetch(board.hash_after(Move::NULL));
         new_b.make_null_move();
         td.stack[td.ply].played_move = Move::NULL;
+        td.stack[td.ply].capture = Piece::None;
         td.hash_history.push(new_b.zobrist_hash);
         td.ply += 1;
 
@@ -391,6 +405,7 @@ fn negamax<const IS_PV: bool>(
         td.nodes.increment();
         let pre_search_nodes = td.nodes.local_count();
         td.stack[td.ply].played_move = Some(m);
+        td.stack[td.ply].capture = board.capture(m);
         td.hash_history.push(new_b.zobrist_hash);
         td.ply += 1;
         let mut node_pv = PV::default();

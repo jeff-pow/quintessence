@@ -18,6 +18,8 @@ pub(super) fn quiescence<const IS_PV: bool>(
     tt: &TranspositionTable,
     board: &Board,
 ) -> i32 {
+    let in_check = board.in_check();
+    td.stack[td.ply].in_check = in_check;
     // Stop if we have reached hard time limit or decided else where it is time to stop
     if td.halt() {
         return 0;
@@ -87,7 +89,6 @@ pub(super) fn quiescence<const IS_PV: bool>(
     let original_alpha = alpha;
     alpha = alpha.max(estimated_eval);
 
-    let in_check = board.in_check();
     // Try to find an evasion if we are in check, otherwise just generate captures
     let mut picker = MovePicker::new(table_move, td, 1, !in_check);
 
@@ -107,6 +108,7 @@ pub(super) fn quiescence<const IS_PV: bool>(
         td.accumulators.push_move(m, board.piece_at(m.to()));
         td.hash_history.push(new_b.zobrist_hash);
         td.stack[td.ply].played_move = Some(m);
+        td.stack[td.ply].capture = board.capture(m);
         td.nodes.increment();
         moves_searched += 1;
         td.ply += 1;
