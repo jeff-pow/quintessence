@@ -12,7 +12,7 @@ use crate::transposition::{EntryFlag, TableEntry, TranspositionTable};
 use super::quiescence::quiescence;
 use super::PV;
 use crate::history_table::update_history;
-use crate::types::pieces::{Piece, PieceName};
+use crate::types::pieces::Piece;
 use arrayvec::ArrayVec;
 
 pub const CHECKMATE: i32 = 25000;
@@ -249,7 +249,9 @@ fn negamax<const IS_PV: bool>(
         && !td.stack[td.ply - 1].in_check
         && td.stack[td.ply - 1].capture != Piece::None
     {
-        let bonus = (-10 * (td.stack[td.ply - 1].static_eval + estimated_eval)).clamp(-1590, 1371) + 800;
+        // The -572 term here is just a term that makes bonus average out to zero over the course
+        // of a bench run.
+        let bonus = (-10 * (td.stack[td.ply - 1].static_eval + estimated_eval)).clamp(-1590, 1371) - 572;
         let prev_m = td.stack[td.ply - 1].played_move.unwrap();
         update_history(&mut td.history.search_history[prev_m.piece_moving()][prev_m.to()].score, bonus);
     }
