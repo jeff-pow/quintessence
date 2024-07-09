@@ -7,7 +7,6 @@ pub const MAX_HIST_VAL: i32 = 16384;
 #[derive(Clone, Copy)]
 pub struct HistoryEntry {
     score: i32,
-    counter: Option<Move>,
     // King can't be captured, so it doesn't need an entry
     capt_hist: [i32; 5],
     cont_hist: [[i32; 64]; 6],
@@ -15,7 +14,7 @@ pub struct HistoryEntry {
 
 impl Default for HistoryEntry {
     fn default() -> Self {
-        Self { score: Default::default(), counter: None, capt_hist: Default::default(), cont_hist: [[0; 64]; 6] }
+        Self { score: Default::default(), capt_hist: Default::default(), cont_hist: [[0; 64]; 6] }
     }
 }
 
@@ -56,9 +55,6 @@ impl HistoryTable {
             let cap = capthist_capture(board, best_move);
             self.update_capt_hist(best_move, cap, bonus);
         } else {
-            if let Some(prev_move) = stack.prev_move(ply - 1) {
-                self.set_counter(prev_move, best_move);
-            }
             if depth > 3 || quiets_tried.len() > 1 {
                 self.update_quiet_history(best_move, bonus);
                 self.update_cont_hist(best_move, stack, ply, bonus);
@@ -90,18 +86,6 @@ impl HistoryTable {
 
     pub(crate) fn quiet_history(&self, m: Move, stack: &SearchStack, ply: i32) -> i32 {
         self.search_history[m.piece_moving()][m.to()].score + self.cont_hist(m, stack, ply)
-    }
-
-    fn set_counter(&mut self, prev: Move, m: Move) {
-        self.search_history[prev.piece_moving()][prev.to()].counter = Some(m);
-    }
-
-    pub fn get_counter(&self, m: Option<Move>) -> Option<Move> {
-        if let Some(m) = m {
-            self.search_history[m.piece_moving()][m.to()].counter
-        } else {
-            None
-        }
     }
 
     fn update_capt_hist(&mut self, m: Move, capture: PieceName, bonus: i32) {
