@@ -7,7 +7,7 @@ use crate::{
 use std::{
     mem::{size_of, transmute},
     num::NonZeroU32,
-    sync::atomic::{AtomicI16, AtomicU16, AtomicU64, AtomicU8, Ordering},
+    sync::atomic::{AtomicI16, AtomicI32, AtomicU16, AtomicU8, Ordering},
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -48,8 +48,8 @@ impl TableEntry {
         }
     }
 
-    fn age(self) -> u64 {
-        u64::from(self.age_pv_bound) >> 3
+    fn age(self) -> i32 {
+        i32::from(self.age_pv_bound) >> 3
     }
 
     pub fn was_pv(self) -> bool {
@@ -95,10 +95,10 @@ pub enum EntryFlag {
 }
 
 #[derive(Default)]
-struct U64Wrapper(AtomicU64);
-impl Clone for U64Wrapper {
+struct I32Wrapper(AtomicI32);
+impl Clone for I32Wrapper {
     fn clone(&self) -> Self {
-        Self(AtomicU64::new(self.0.load(Ordering::Relaxed)))
+        Self(AtomicI32::new(self.0.load(Ordering::Relaxed)))
     }
 }
 
@@ -140,34 +140,34 @@ impl Clone for InternalEntry {
 
 #[derive(Clone)]
 pub struct TranspositionTable {
-    vec: Box<[InternalEntry]>,
-    age: U64Wrapper,
+    data: Box<[TTBucket]>,
+    age: I32Wrapper,
 }
 
 pub const TARGET_TABLE_SIZE_MB: usize = 16;
 const BYTES_PER_MB: usize = 1024 * 1024;
-const ENTRY_SIZE: usize = size_of::<TableEntry>();
-const MAX_AGE: u64 = (1 << 5) - 1;
+const MAX_AGE: i32 = 1 << 5;
+const AGE_MASK: i32 = MAX_AGE - 1;
 
 impl TranspositionTable {
     pub fn prefetch(&self, hash: u64) {
         #[cfg(target_arch = "x86_64")]
         use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
         unsafe {
-            let index = index(hash, self.vec.len());
-            let entry = self.vec.get_unchecked(index);
-            _mm_prefetch::<_MM_HINT_T0>((entry as *const InternalEntry).cast())
+            let index = index(hash, self.data.len());
+            let entry = self.data.get_unchecked(index);
+            _mm_prefetch::<_MM_HINT_T0>((entry as *const TTBucket).cast())
         }
     }
 
     pub fn new(mb: usize) -> Self {
         let target_size = mb * BYTES_PER_MB;
-        let table_capacity = target_size / ENTRY_SIZE;
-        Self { vec: vec![InternalEntry::default(); table_capacity].into_boxed_slice(), age: U64Wrapper::default() }
+        let table_capacity = target_size / size_of::<TTBucket>();
+        Self { data: vec![TTBucket::default(); table_capacity].into_boxed_slice(), age: I32Wrapper::default() }
     }
 
     pub fn clear(&self) {
-        self.vec.iter().for_each(|x| {
+        self.data.iter().flat_map(|b| &b.entries).for_each(|x| {
             x.depth.store(0, Ordering::Relaxed);
             x.age_pv_bound.store(0, Ordering::Relaxed);
             x.key.store(0, Ordering::Relaxed);
@@ -178,7 +178,7 @@ impl TranspositionTable {
         self.age.0.store(0, Ordering::Relaxed);
     }
 
-    fn age(&self) -> u64 {
+    fn age(&self) -> i32 {
         self.age.0.load(Ordering::Relaxed)
     }
 
@@ -199,24 +199,41 @@ impl TranspositionTable {
         is_pv: bool,
         static_eval: i32,
     ) {
-        let idx = index(hash, self.vec.len());
+        let idx = index(hash, self.data.len());
         let key = hash as u16;
 
-        let old_entry = unsafe { TableEntry::from(self.vec.get_unchecked(idx).clone()) };
+        let cluster = &self.data[idx].entries;
+        let mut tte: TableEntry = cluster[0].clone().into();
+        let mut cluster_idx = 0;
+        if tte.key != 0 && tte.key != key {
+            for (i, entry) in cluster.iter().enumerate().skip(1) {
+                let entry: TableEntry = entry.clone().into();
+                if entry.key == 0 || entry.key == key {
+                    tte = entry;
+                    cluster_idx = i;
+                    break;
+                }
+
+                if i32::from(tte.depth) - ((MAX_AGE + self.age() - tte.age()) & AGE_MASK) * 4
+                    > i32::from(entry.depth) - ((MAX_AGE + self.age() - entry.age()) & AGE_MASK) * 4
+                {
+                    tte = entry;
+                    cluster_idx = i;
+                }
+            }
+        }
 
         // Conditions from Alexandria
-        if old_entry.age() != self.age()
-            || old_entry.key() != key
+        if tte.age() != self.age()
+            || tte.key() != key
             || flag == EntryFlag::Exact
-            || depth as usize + 5 + 2 * usize::from(is_pv) > old_entry.depth as usize
+            || depth + 5 + 2 * i32::from(is_pv) > tte.depth()
         {
             // Don't overwrite a best move with a null move
-            let best_m = if m.is_none() && key == old_entry.key {
-                old_entry.best_move
-            } else if m.is_none() {
-                0
-            } else {
-                m.unwrap().as_u16()
+            let best_m = match (m, key == tte.key) {
+                (None, true) => tte.best_move,
+                (None, false) => 0,
+                (Some(mv), _) => mv.as_u16(),
             };
 
             if search_score > NEAR_CHECKMATE {
@@ -227,42 +244,53 @@ impl TranspositionTable {
 
             let age_pv_bound = (self.age() << 3) as u8 | u8::from(is_pv) << 2 | flag as u8;
             unsafe {
-                self.vec.get_unchecked(idx).key.store(key, Ordering::Relaxed);
-                self.vec.get_unchecked(idx).depth.store(depth as u8, Ordering::Relaxed);
-                self.vec.get_unchecked(idx).age_pv_bound.store(age_pv_bound, Ordering::Relaxed);
-                self.vec.get_unchecked(idx).search_score.store(search_score as i16, Ordering::Relaxed);
-                self.vec.get_unchecked(idx).best_move.store(best_m, Ordering::Relaxed);
-                self.vec.get_unchecked(idx).static_eval.store(static_eval as i16, Ordering::Relaxed);
+                self.data.get_unchecked(idx).entries[cluster_idx].key.store(key, Ordering::Relaxed);
+                self.data.get_unchecked(idx).entries[cluster_idx].depth.store(depth as u8, Ordering::Relaxed);
+                self.data.get_unchecked(idx).entries[cluster_idx].age_pv_bound.store(age_pv_bound, Ordering::Relaxed);
+                self.data.get_unchecked(idx).entries[cluster_idx]
+                    .search_score
+                    .store(search_score as i16, Ordering::Relaxed);
+                self.data.get_unchecked(idx).entries[cluster_idx].best_move.store(best_m, Ordering::Relaxed);
+                self.data.get_unchecked(idx).entries[cluster_idx]
+                    .static_eval
+                    .store(static_eval as i16, Ordering::Relaxed);
             }
         }
     }
 
     pub fn get(&self, hash: u64, ply: i32) -> Option<TableEntry> {
-        let idx = index(hash, self.vec.len());
+        let idx = index(hash, self.data.len());
         let key = hash as u16;
 
-        let mut entry = unsafe { TableEntry::from(self.vec.get_unchecked(idx).clone()) };
+        let cluster = &self.data[idx].entries;
 
-        if entry.key != key {
-            return None;
+        for entry in cluster {
+            let mut entry: TableEntry = entry.clone().into();
+
+            if entry.key != key {
+                continue;
+            }
+
+            if entry.search_score > NEAR_CHECKMATE as i16 {
+                entry.search_score -= ply as i16;
+            } else if entry.search_score < -NEAR_CHECKMATE as i16 {
+                entry.search_score += ply as i16;
+            }
+
+            return Some(entry);
         }
 
-        if entry.search_score > NEAR_CHECKMATE as i16 {
-            entry.search_score -= ply as i16;
-        } else if entry.search_score < -NEAR_CHECKMATE as i16 {
-            entry.search_score += ply as i16;
-        }
-
-        Some(entry)
+        None
     }
 
     pub(crate) fn permille_usage(&self) -> usize {
-        self.vec
+        self.data
             .iter()
             .take(1000)
-            .map(|e| TableEntry::from(e.clone()))
+            .flat_map(|b| b.entries.clone())
             // We only consider entries meaningful if their age is current (due to age based overwrites)
             // and their depth is > 0. 0 depth entries are from qsearch and should not be counted.
+            .map(TableEntry::from)
             .filter(|e| e.depth() > 0 && e.age() == self.age())
             .count()
     }
@@ -271,6 +299,16 @@ impl TranspositionTable {
 fn index(hash: u64, table_capacity: usize) -> usize {
     ((u128::from(hash) * (table_capacity as u128)) >> 64) as usize
 }
+
+const _: () = assert!(size_of::<TTBucket>() == 32);
+#[repr(align(32))]
+#[derive(Clone, Default)]
+struct TTBucket {
+    entries: [InternalEntry; 3],
+    _padding: [u8; 2],
+}
+
+impl TTBucket {}
 
 #[cfg(test)]
 mod transpos_tests {
