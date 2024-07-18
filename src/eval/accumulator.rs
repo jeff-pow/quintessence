@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::{
-    network::{flatten, Network, BUCKETS, NORMALIZATION_FACTOR, NUM_BUCKETS, QAB, SCALE},
+    network::{flatten, Network, NORMALIZATION_FACTOR, NUM_BUCKETS, QAB, SCALE},
     Align64, Block, NET,
 };
 use arrayvec::ArrayVec;
@@ -54,6 +54,11 @@ impl IndexMut<Color> for Accumulator {
 }
 
 impl Accumulator {
+    pub fn add(&mut self, side: Color, feature_idx: usize) {
+        let weights = &NET.feature_weights[feature_idx];
+        self[side].iter_mut().zip(weights.iter()).for_each(|(x, &w)| *x += w);
+    }
+
     pub fn raw_evaluate(&self, stm: Color) -> i32 {
         let (us, them) = (&self[stm], &self[!stm]);
         let weights = &NET.output_weights;
@@ -131,13 +136,6 @@ impl Accumulator {
 
     pub(crate) fn lazy_update(&mut self, old: &Accumulator, side: Color, board: &Board) {
         let m = self.m;
-        let from = if side == Color::Black { m.from().flip_vertical() } else { m.from() };
-        let to = if side == Color::Black { m.to().flip_vertical() } else { m.to() };
-        assert!(
-            m.piece_moving().name() != PieceName::King
-                || m.piece_moving().color() != side
-                || BUCKETS[from] == BUCKETS[to]
-        );
         let piece_moving = m.promotion().unwrap_or(m.piece_moving());
         let king = board.king_square(side);
         let a1 = Network::feature_idx(piece_moving, m.to(), king, side);
@@ -208,14 +206,11 @@ impl Board {
     pub fn new_accumulator(&self) -> Accumulator {
         let mut acc = Accumulator::default();
         for view in Color::iter() {
-            acc.vals[view] = NET.feature_bias;
-            let mut vec: ArrayVec<u16, 32> = ArrayVec::new();
             for sq in self.occupancies() {
                 let p = self.piece_at(sq);
                 let idx = Network::feature_idx(p, sq, self.king_square(view), view);
-                vec.push(idx as u16);
+                acc.add(view, idx);
             }
-            update(&mut acc.vals[view], &vec, &[]);
         }
         acc
     }
@@ -264,27 +259,8 @@ impl AccumulatorStack {
         }
     }
 
-    fn can_efficiently_update(&mut self, side: Color) -> bool {
-        return true;
-        let mut curr = self.top;
-        loop {
-            let m = self.stack[curr].m;
-            let from = if side == Color::Black { m.from().flip_vertical() } else { m.from() };
-            let to = if side == Color::Black { m.to().flip_vertical() } else { m.to() };
-
-            if m.piece_moving().color() == side
-                && m.piece_moving().name() == PieceName::King
-                && BUCKETS[from] != BUCKETS[to]
-            {
-                return false;
-            }
-
-            if self.stack[curr].correct[side.idx()] {
-                return true;
-            }
-
-            curr -= 1;
-        }
+    fn can_efficiently_update(&mut self, _side: Color) -> bool {
+        true
     }
 
     pub fn evaluate(&mut self, board: &Board) -> i32 {
@@ -338,32 +314,33 @@ pub struct AccumulatorCache {
 }
 
 impl AccumulatorCache {
-    pub fn update_acc(&mut self, board: &Board, acc: &mut Accumulator, view: Color) {
+    pub fn update_acc(&mut self, _board: &Board, _acc: &mut Accumulator, _view: Color) {
+        panic!();
         let mut adds = ArrayVec::<_, 32>::new();
         let mut subs = ArrayVec::<_, 32>::new();
-        let king = board.king_square(view);
-        let entry = &mut self.entries[Network::bucket(view, king)][view];
+        let king = _board.king_square(_view);
+        let entry = &mut self.entries[Network::bucket(_view, king)][_view];
 
         for piece in Piece::iter() {
             let prev = entry.pieces[piece.name()] & entry.color[piece.color()];
-            let curr = board.piece_color(piece.color(), piece.name());
+            let curr = _board.piece_color(piece.color(), piece.name());
 
             let added = curr & !prev;
             let removed = prev & !curr;
 
             for sq in added {
-                adds.push(Network::feature_idx(piece, sq, king, view) as u16);
+                adds.push(Network::feature_idx(piece, sq, king, _view) as u16);
             }
             for sq in removed {
-                subs.push(Network::feature_idx(piece, sq, king, view) as u16);
+                subs.push(Network::feature_idx(piece, sq, king, _view) as u16);
             }
         }
 
-        entry.pieces = board.piece_bbs();
-        entry.color = board.color_bbs();
+        entry.pieces = _board.piece_bbs();
+        entry.color = _board.color_bbs();
 
         update(&mut entry.acc, &adds, &subs);
-        acc.vals[view] = entry.acc;
+        _acc.vals[_view] = entry.acc;
     }
 }
 

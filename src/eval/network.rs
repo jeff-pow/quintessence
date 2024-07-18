@@ -41,13 +41,9 @@ pub(super) struct Network {
 }
 
 impl Network {
-    pub fn feature_idx(piece: Piece, mut sq: Square, mut king: Square, view: Color) -> usize {
+    pub fn feature_idx(piece: Piece, sq: Square, mut _king: Square, view: Color) -> usize {
         const COLOR_OFFSET: usize = NUM_SQUARES * NUM_PIECES;
         const PIECE_OFFSET: usize = NUM_SQUARES;
-        // if king.file() > 3 {
-        //     king = king.flip_horizontal();
-        //     sq = sq.flip_horizontal();
-        // }
         match view {
             Color::White => piece.color().idx() * COLOR_OFFSET + piece.name().idx() * PIECE_OFFSET + sq.idx(),
             Color::Black => {
