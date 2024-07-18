@@ -17,7 +17,7 @@ pub(super) const RELU_MAX: i16 = QA as i16;
 
 pub(super) const SCALE: i32 = 400;
 
-pub const NUM_BUCKETS: usize = 9;
+pub const NUM_BUCKETS: usize = 1;
 
 #[rustfmt::skip]
 pub static BUCKETS: [usize; 64] = [
@@ -44,22 +44,14 @@ impl Network {
     pub fn feature_idx(piece: Piece, mut sq: Square, mut king: Square, view: Color) -> usize {
         const COLOR_OFFSET: usize = NUM_SQUARES * NUM_PIECES;
         const PIECE_OFFSET: usize = NUM_SQUARES;
-        if king.file() > 3 {
-            king = king.flip_horizontal();
-            sq = sq.flip_horizontal();
-        }
+        // if king.file() > 3 {
+        //     king = king.flip_horizontal();
+        //     sq = sq.flip_horizontal();
+        // }
         match view {
-            Color::White => {
-                BUCKETS[king] * INPUT_SIZE
-                    + piece.color().idx() * COLOR_OFFSET
-                    + piece.name().idx() * PIECE_OFFSET
-                    + sq.idx()
-            }
+            Color::White => piece.color().idx() * COLOR_OFFSET + piece.name().idx() * PIECE_OFFSET + sq.idx(),
             Color::Black => {
-                BUCKETS[king.flip_vertical()] * INPUT_SIZE
-                    + (!piece.color()).idx() * COLOR_OFFSET
-                    + piece.name().idx() * PIECE_OFFSET
-                    + sq.flip_vertical().idx()
+                (!piece.color()).idx() * COLOR_OFFSET + piece.name().idx() * PIECE_OFFSET + sq.flip_vertical().idx()
             }
         }
     }

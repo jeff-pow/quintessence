@@ -265,6 +265,7 @@ impl AccumulatorStack {
     }
 
     fn can_efficiently_update(&mut self, side: Color) -> bool {
+        return true;
         let mut curr = self.top;
         loop {
             let m = self.stack[curr].m;

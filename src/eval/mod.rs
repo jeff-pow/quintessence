@@ -11,7 +11,7 @@ type Block = [i16; HIDDEN_SIZE];
 pub const INPUT_SIZE: usize = 768;
 const HIDDEN_SIZE: usize = 1536;
 
-static NET: Network = unsafe { std::mem::transmute(*include_bytes!("../../bins/titan-beefy-400.bin")) };
+static NET: Network = unsafe { std::mem::transmute(*include_bytes!("/home/jeff/Downloads/titan-1000.bin")) };
 
 #[repr(C, align(64))]
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
