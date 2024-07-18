@@ -22,10 +22,16 @@ mod uci;
 mod zobrist;
 
 use crate::bench::bench;
+use board::Board;
 use std::env;
 use uci::main_loop;
 
 fn main() {
+    let b = Board::default();
+    let acc = b.new_accumulator();
+    dbg!(acc.raw_evaluate_f32(b.stm));
+    panic!();
+
     if env::args().any(|x| x == *"bench") {
         bench();
     } else {

@@ -4,18 +4,16 @@ use crate::types::{
     pieces::{Color, Piece, NUM_PIECES},
     square::{Square, NUM_SQUARES},
 };
+use bytemuck::{Pod, Zeroable};
 /**
 * When changing activation functions, both the normalization factor and QA may need to change
 * alongside changing the crelu calls to screlu in simd and serial code.
 */
-const QA: i32 = 255; // CHANGES WITH NET QUANZIZATION
-const QB: i32 = 64;
-pub(super) const QAB: i32 = QA * QB;
-pub(super) const NORMALIZATION_FACTOR: i32 = QA; // CHANGES WITH SCRELU/CRELU ACTIVATION
-pub(super) const RELU_MIN: i16 = 0;
-pub(super) const RELU_MAX: i16 = QA as i16;
+const QA: f32 = 1.; // CHANGES WITH NET QUANZIZATION
+pub(super) const RELU_MIN: f32 = 0f32;
+pub(super) const RELU_MAX: f32 = QA;
 
-pub(super) const SCALE: i32 = 400;
+pub(super) const SCALE: f32 = 400.;
 
 pub const NUM_BUCKETS: usize = 1;
 
@@ -31,13 +29,13 @@ pub static BUCKETS: [usize; 64] = [
     8, 8, 8, 8, 17, 17, 17, 17,
 ];
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C, align(64))]
-pub(super) struct Network {
+pub struct Network {
     pub feature_weights: [Align64<Block>; INPUT_SIZE * NUM_BUCKETS],
     pub feature_bias: Align64<Block>,
     pub output_weights: [Align64<Block>; 2],
-    pub output_bias: i16,
+    pub output_bias: f32,
 }
 
 impl Network {
@@ -60,16 +58,16 @@ impl Network {
     }
 }
 
-fn screlu(i: i16) -> i32 {
+fn screlu(i: f32) -> f32 {
     crelu(i) * crelu(i)
 }
 
-fn crelu(i: i16) -> i32 {
-    i32::from(i.clamp(RELU_MIN, RELU_MAX))
+fn crelu(i: f32) -> f32 {
+    i.clamp(RELU_MIN, RELU_MAX)
 }
 
-pub(super) fn flatten(acc: &Block, weights: &Block) -> i32 {
-    acc.iter().zip(weights).map(|(&i, &w)| screlu(i) * i32::from(w)).sum()
+pub(super) fn flatten(acc: &Block, weights: &Block) -> f32 {
+    acc.iter().zip(weights).map(|(&i, &w)| screlu(i) * (w)).sum()
 }
 
 #[cfg(test)]

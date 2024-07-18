@@ -1,7 +1,6 @@
 use crate::{
     board::Board,
     chess_move::{Direction, Move},
-    eval::HIDDEN_SIZE,
     search::search::{MAX_SEARCH_DEPTH, NEAR_CHECKMATE},
     types::{
         bitboard::Bitboard,
@@ -10,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    network::{flatten, Network, NORMALIZATION_FACTOR, NUM_BUCKETS, QAB, SCALE},
+    network::{flatten, Network, NUM_BUCKETS, SCALE},
     Align64, Block, NET,
 };
 use arrayvec::ArrayVec;
@@ -59,12 +58,15 @@ impl Accumulator {
         self[side].iter_mut().zip(weights.iter()).for_each(|(x, &w)| *x += w);
     }
 
-    pub fn raw_evaluate(&self, stm: Color) -> i32 {
+    pub fn raw_evaluate_f32(&self, stm: Color) -> f32 {
         let (us, them) = (&self[stm], &self[!stm]);
         let weights = &NET.output_weights;
         let output = flatten(us, &weights[0]) + flatten(them, &weights[1]);
-        ((i32::from(NET.output_bias) + output / NORMALIZATION_FACTOR) * SCALE / QAB)
-            .clamp(-NEAR_CHECKMATE + 1, NEAR_CHECKMATE - 1)
+        ((NET.output_bias) + output) * SCALE
+    }
+
+    pub fn raw_evaluate(&self, stm: Color) -> i32 {
+        self.raw_evaluate_f32(stm) as i32
     }
 
     /// Credit to viridithas for these values and concepts
@@ -167,40 +169,7 @@ impl Accumulator {
 
 // Credit to akimbo. This function streamlines the assembly generated and prevents unnecessary
 // redundant loads and stores to the same simd vectors.
-pub fn update(acc: &mut Align64<Block>, adds: &[u16], subs: &[u16]) {
-    const REGISTERS: usize = 8;
-    const ELEMENTS_PER_LOOP: usize = REGISTERS * 256 / 16;
-
-    let mut regs = [0i16; ELEMENTS_PER_LOOP];
-
-    for i in 0..HIDDEN_SIZE / ELEMENTS_PER_LOOP {
-        let offset = ELEMENTS_PER_LOOP * i;
-
-        for (reg, &j) in regs.iter_mut().zip(acc[offset..].iter()) {
-            *reg = j;
-        }
-
-        for &add in adds {
-            let weights = &NET.feature_weights[usize::from(add)];
-
-            for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                *reg += w;
-            }
-        }
-
-        for &sub in subs {
-            let weights = &NET.feature_weights[usize::from(sub)];
-
-            for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                *reg -= w;
-            }
-        }
-
-        for (a, &r) in acc[offset..].iter_mut().zip(regs.iter()) {
-            *a = r;
-        }
-    }
-}
+pub fn update(acc: &mut Align64<Block>, adds: &[u16], subs: &[u16]) {}
 
 impl Board {
     pub fn new_accumulator(&self) -> Accumulator {

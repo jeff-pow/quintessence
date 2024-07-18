@@ -12,6 +12,7 @@ avx512 = []
 
 [dependencies]
 arrayvec = "0.7.4"
+bytemuck = "1.16.1"
 
 [profile.release]
 codegen-units = 1
