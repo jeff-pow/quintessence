@@ -314,34 +314,7 @@ pub struct AccumulatorCache {
 }
 
 impl AccumulatorCache {
-    pub fn update_acc(&mut self, _board: &Board, _acc: &mut Accumulator, _view: Color) {
-        panic!();
-        let mut adds = ArrayVec::<_, 32>::new();
-        let mut subs = ArrayVec::<_, 32>::new();
-        let king = _board.king_square(_view);
-        let entry = &mut self.entries[Network::bucket(_view, king)][_view];
-
-        for piece in Piece::iter() {
-            let prev = entry.pieces[piece.name()] & entry.color[piece.color()];
-            let curr = _board.piece_color(piece.color(), piece.name());
-
-            let added = curr & !prev;
-            let removed = prev & !curr;
-
-            for sq in added {
-                adds.push(Network::feature_idx(piece, sq, king, _view) as u16);
-            }
-            for sq in removed {
-                subs.push(Network::feature_idx(piece, sq, king, _view) as u16);
-            }
-        }
-
-        entry.pieces = _board.piece_bbs();
-        entry.color = _board.color_bbs();
-
-        update(&mut entry.acc, &adds, &subs);
-        _acc.vals[_view] = entry.acc;
-    }
+    pub fn update_acc(&mut self, _board: &Board, _acc: &mut Accumulator, _view: Color) {}
 }
 
 #[cfg(test)]
