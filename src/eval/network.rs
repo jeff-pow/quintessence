@@ -72,35 +72,16 @@ impl Network {
     }
 }
 
-#[cfg(all(not(target_feature = "avx2"), not(feature = "avx512")))]
 fn screlu(i: i16) -> i32 {
     crelu(i) * crelu(i)
 }
 
-#[cfg(all(not(target_feature = "avx2"), not(feature = "avx512")))]
 fn crelu(i: i16) -> i32 {
     i32::from(i.clamp(RELU_MIN, RELU_MAX))
 }
 
 pub(super) fn flatten(acc: &Block, weights: &Block) -> i32 {
-    #[cfg(feature = "avx512")]
-    {
-        use super::simd::avx512;
-        unsafe { avx512::flatten(acc, weights) }
-    }
-    #[cfg(all(not(feature = "avx512"), target_feature = "avx2"))]
-    {
-        use super::simd::avx2;
-        unsafe { avx2::flatten(acc, weights) }
-    }
-    #[cfg(all(not(target_feature = "avx2"), not(feature = "avx512")))]
-    {
-        let mut sum = 0;
-        for (&i, &w) in acc.iter().zip(weights) {
-            sum += screlu(i) * i32::from(w);
-        }
-        sum
-    }
+    acc.iter().zip(weights).map(|(&i, &w)| screlu(i) * i32::from(w)).sum()
 }
 
 #[cfg(test)]

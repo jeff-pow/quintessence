@@ -10,7 +10,7 @@ endif
 EXE ?= $(DEFAULT_EXE)
 
 openbench:
-	cargo rustc --release -- -C target-cpu=native --emit link=$(EXE)
+	cargo rustc --release -- -C target-cpu=x86-64 --emit link=$(EXE)
 
 release:
 	cargo rustc --release -- -C target-cpu=x86-64 --emit link=titan-x64_64-linux-v1
@@ -26,7 +26,7 @@ avx512:
 	cargo rustc --release --features avx512 -- -C target-cpu=native --emit link=$(EXE)
 
 bench:
-	cargo rustc --release -- -C target-cpu=native --emit link=$(EXE)
+	cargo rustc --release -- -C target-cpu=x86-64 --emit link=$(EXE)
 	./$(EXE) bench
 
 ancient:
