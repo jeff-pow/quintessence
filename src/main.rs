@@ -8,6 +8,7 @@ mod chess_move;
 mod correction;
 mod eval;
 mod fen;
+mod hce;
 mod history_table;
 mod magics;
 mod movegen;

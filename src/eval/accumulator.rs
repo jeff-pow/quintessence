@@ -2,6 +2,7 @@ use crate::{
     board::Board,
     chess_move::{Direction, Move},
     eval::HIDDEN_SIZE,
+    hce::hce_evaluate,
     search::search::{MAX_SEARCH_DEPTH, NEAR_CHECKMATE},
     types::{
         bitboard::Bitboard,
@@ -64,10 +65,7 @@ impl Accumulator {
 
     /// Credit to viridithas for these values and concepts
     pub fn scaled_evaluate(&self, board: &Board) -> i32 {
-        let raw = self.raw_evaluate(board.stm);
-        let eval = raw * board.mat_scale() / 1024;
-        let eval = eval * (200 - board.half_moves as i32) / 200;
-        (eval).clamp(-NEAR_CHECKMATE, NEAR_CHECKMATE)
+        hce_evaluate(board)
     }
 
     fn add_sub(&mut self, old: &Accumulator, a1: usize, s1: usize, side: Color) {
@@ -287,8 +285,6 @@ impl AccumulatorStack {
     }
 
     pub fn evaluate(&mut self, board: &Board) -> i32 {
-        self.force_updates(board);
-        assert_eq!(self.stack[self.top].correct, [true; 2]);
         self.top().scaled_evaluate(board)
     }
 
