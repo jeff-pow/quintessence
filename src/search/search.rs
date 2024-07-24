@@ -218,13 +218,16 @@ fn negamax<const IS_PV: bool>(
     let original_alpha = alpha;
 
     let raw_eval;
+    let corrected_eval;
     let estimated_eval;
     if board.in_check() {
         raw_eval = -INFINITY;
+        corrected_eval = -INFINITY;
         estimated_eval = -INFINITY;
     } else if let Some(entry) = entry {
         // Get static eval from transposition table if possible
         raw_eval = if entry.static_eval() != -INFINITY { entry.static_eval() } else { td.accumulators.evaluate(board) };
+        corrected_eval = td.history.corr_hist.correct_score(board.stm, board.pawn_hash, raw_eval);
         if entry.search_score() != -INFINITY
             && (entry.flag() == EntryFlag::AlphaUnchanged && entry.search_score() < raw_eval
                 || entry.flag() == EntryFlag::BetaCutOff && entry.search_score() > raw_eval
@@ -232,13 +235,13 @@ fn negamax<const IS_PV: bool>(
         {
             estimated_eval = entry.search_score();
         } else {
-            estimated_eval = raw_eval;
+            estimated_eval = corrected_eval;
         }
     } else {
-        let eval = td.accumulators.evaluate(board);
-        tt.store(board.zobrist_hash, Move::NULL, 0, EntryFlag::None, -INFINITY, td.ply, tt_pv, eval);
-        raw_eval = eval;
-        estimated_eval = eval;
+        raw_eval = td.accumulators.evaluate(board);
+        tt.store(board.zobrist_hash, Move::NULL, 0, EntryFlag::None, -INFINITY, td.ply, tt_pv, raw_eval);
+        corrected_eval = td.history.corr_hist.correct_score(board.stm, board.pawn_hash, raw_eval);
+        estimated_eval = corrected_eval;
     };
 
     td.stack[td.ply].static_eval = estimated_eval;
@@ -494,7 +497,7 @@ fn negamax<const IS_PV: bool>(
     }
 
     if moves_searched == 0 {
-        return if singular_search {
+        best_score = if singular_search {
             alpha
         } else if in_check {
             // Distance from root is returned in order for other recursive calls to determine
@@ -512,6 +515,14 @@ fn negamax<const IS_PV: bool>(
     } else {
         EntryFlag::AlphaUnchanged
     };
+
+    if !(in_check
+        || (best_move.is_some() && best_move.unwrap().is_tactical(board))
+        || (entry_flag == EntryFlag::BetaCutOff && best_score <= corrected_eval)
+        || entry_flag == EntryFlag::AlphaUnchanged && best_score >= corrected_eval)
+    {
+        td.history.corr_hist.update_table(board.stm, board.pawn_hash, depth, best_score - corrected_eval);
+    }
 
     // Don't save to TT while in a singular extension verification search
     if !singular_search {

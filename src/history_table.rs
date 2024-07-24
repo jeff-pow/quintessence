@@ -1,5 +1,6 @@
 use crate::{board::Board, chess_move::Move, types::pieces::PieceName};
 
+use crate::correction::CorrectionHistory;
 use crate::search::SearchStack;
 
 pub const MAX_HIST_VAL: i32 = 16384;
@@ -22,6 +23,7 @@ impl Default for HistoryEntry {
 #[derive(Clone)]
 pub struct HistoryTable {
     search_history: Box<[[HistoryEntry; 64]; 12]>,
+    pub corr_hist: CorrectionHistory,
 }
 
 fn update_history(score: &mut i32, bonus: i32) {
@@ -136,6 +138,6 @@ impl HistoryTable {
 
 impl Default for HistoryTable {
     fn default() -> Self {
-        Self { search_history: Box::new([[HistoryEntry::default(); 64]; 12]) }
+        Self { search_history: Box::new([[HistoryEntry::default(); 64]; 12]), corr_hist: CorrectionHistory::default() }
     }
 }

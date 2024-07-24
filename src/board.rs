@@ -26,9 +26,10 @@ pub struct Board {
     pub stm: Color,
     pub castling_rights: u32,
     pub en_passant_square: Option<Square>,
-    pub num_moves: usize,
-    pub half_moves: usize,
+    pub num_moves: u16,
+    pub half_moves: u16,
     pub zobrist_hash: u64,
+    pub pawn_hash: u64,
     threats: Bitboard,
     checkers: Bitboard,
     pinned: Bitboard,
@@ -100,6 +101,7 @@ impl Board {
     pub fn hash_after(&self, m: Option<Move>) -> u64 {
         let mut hash = self.zobrist_hash ^ ZOBRIST.turn;
 
+        // Return hash right away if the move was a null move
         let Some(m) = m else { return hash };
 
         hash ^= ZOBRIST.piece[m.piece_moving()][m.from()] ^ ZOBRIST.piece[m.piece_moving()][m.to()];
@@ -148,6 +150,9 @@ impl Board {
         self.bitboards[piece.name()] ^= sq.bitboard();
         self.color_occupancies[piece.color()] ^= sq.bitboard();
         self.zobrist_hash ^= ZOBRIST.piece[piece][sq];
+        if piece.name() == PieceName::Pawn {
+            self.pawn_hash ^= ZOBRIST.piece[piece][sq];
+        }
     }
 
     fn remove_piece(&mut self, sq: Square) {
@@ -157,6 +162,9 @@ impl Board {
             self.bitboards[piece.name()] ^= sq.bitboard();
             self.color_occupancies[piece.color()] ^= sq.bitboard();
             self.zobrist_hash ^= ZOBRIST.piece[piece][sq];
+            if piece.name() == PieceName::Pawn {
+                self.pawn_hash ^= ZOBRIST.piece[piece][sq];
+            }
         }
     }
 
@@ -467,6 +475,7 @@ impl Board {
             stm: Color::White,
             en_passant_square: None,
             num_moves: 0,
+            pawn_hash: 0,
             half_moves: 0,
             zobrist_hash: 0,
             threats: Bitboard::EMPTY,

@@ -5,6 +5,7 @@ mod attack_boards;
 mod bench;
 mod board;
 mod chess_move;
+mod correction;
 mod eval;
 mod fen;
 mod history_table;

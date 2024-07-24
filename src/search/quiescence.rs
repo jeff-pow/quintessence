@@ -71,12 +71,12 @@ pub(super) fn quiescence<const IS_PV: bool>(
         {
             estimated_eval = entry.search_score();
         } else {
-            estimated_eval = raw_eval;
+            estimated_eval = td.history.corr_hist.correct_score(board.stm, board.pawn_hash, raw_eval);
         }
     } else {
         raw_eval = td.accumulators.evaluate(board);
         tt.store(board.zobrist_hash, Move::NULL, 0, EntryFlag::None, -INFINITY, td.ply, tt_pv, raw_eval);
-        estimated_eval = raw_eval;
+        estimated_eval = td.history.corr_hist.correct_score(board.stm, board.pawn_hash, raw_eval);
     };
     td.stack[td.ply].static_eval = estimated_eval;
 

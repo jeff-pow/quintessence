@@ -150,7 +150,7 @@ impl<'a> ThreadData<'a> {
         }
 
         let mut reps = 2;
-        for &hash in self.hash_history.iter().rev().take(board.half_moves + 1).step_by(2) {
+        for &hash in self.hash_history.iter().rev().take(board.half_moves as usize + 1).step_by(2) {
             reps -= u32::from(hash == board.zobrist_hash);
             if reps == 0 {
                 return true;
