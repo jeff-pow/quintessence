@@ -9,9 +9,9 @@ mod simd;
 type Block = [i16; HIDDEN_SIZE];
 
 pub const INPUT_SIZE: usize = 768;
-const HIDDEN_SIZE: usize = 32;
+const HIDDEN_SIZE: usize = 128;
 
-static NET: Network = unsafe { std::mem::transmute(*include_bytes!("../../quantized-network.bin")) };
+static NET: Network = unsafe { std::mem::transmute(*include_bytes!("../../0.1alpha-quant.bin")) };
 
 #[repr(C, align(64))]
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
