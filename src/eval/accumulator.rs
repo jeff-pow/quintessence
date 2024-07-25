@@ -167,40 +167,7 @@ impl Accumulator {
 
 // Credit to akimbo. This function streamlines the assembly generated and prevents unnecessary
 // redundant loads and stores to the same simd vectors.
-pub fn update(acc: &mut Align64<Block>, adds: &[u16], subs: &[u16]) {
-    const REGISTERS: usize = 8;
-    const ELEMENTS_PER_LOOP: usize = REGISTERS * 256 / 16;
-
-    let mut regs = [0i16; ELEMENTS_PER_LOOP];
-
-    for i in 0..HIDDEN_SIZE / ELEMENTS_PER_LOOP {
-        let offset = ELEMENTS_PER_LOOP * i;
-
-        for (reg, &j) in regs.iter_mut().zip(acc[offset..].iter()) {
-            *reg = j;
-        }
-
-        for &add in adds {
-            let weights = &NET.feature_weights[usize::from(add)];
-
-            for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                *reg += w;
-            }
-        }
-
-        for &sub in subs {
-            let weights = &NET.feature_weights[usize::from(sub)];
-
-            for (reg, &w) in regs.iter_mut().zip(weights[offset..].iter()) {
-                *reg -= w;
-            }
-        }
-
-        for (a, &r) in acc[offset..].iter_mut().zip(regs.iter()) {
-            *a = r;
-        }
-    }
-}
+pub fn update(acc: &mut Align64<Block>, adds: &[u16], subs: &[u16]) {}
 
 impl Board {
     pub fn new_accumulator(&self) -> Accumulator {
